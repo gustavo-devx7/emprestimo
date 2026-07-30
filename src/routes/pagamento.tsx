@@ -77,7 +77,12 @@ function Pagamento() {
     setLoading(true);
     setError(null);
     try {
-      setCharge(await generate({ data: form }));
+      const params = new URLSearchParams(window.location.search);
+      const tracking = Object.fromEntries(["src", "sck", "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"].flatMap((key) => {
+        const value = params.get(key);
+        return value ? [[key, value]] : [];
+      }));
+      setCharge(await generate({ data: { ...form, tracking } }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível gerar o PIX.");
     } finally {

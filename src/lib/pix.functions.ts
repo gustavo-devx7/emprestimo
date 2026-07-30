@@ -1,6 +1,66 @@
 import { createServerFn } from "@tanstack/react-start";
 
 const API_BASE = "https://app.flevopay.com.br/api/v1";
+const UTMIFY_API = "https://api.utmify.com.br/api-credentials/orders";
+
+function env(name: string) {
+  return String(process.env[name] ?? "").trim();
+}
+
+function getWebhookUrl() {
+  const url = env("PIX_WEBHOOK_URL");
+  // Never send status callbacks to FlevoPay's transaction creation endpoint.
+  return url && !url.startsWith("https://app.flevopay.com.br/") ? url : "";
+}
+
+function utmifyDate() {
+  return new Date().toISOString().slice(0, 19).replace("T", " ");
+}
+
+async function notifyUtmify(input: {
+  orderId: string;
+  status: "waiting_payment" | "paid";
+  customer: CustomerInput;
+  amount: number;
+}) {
+  const token = env("UTMIFY_API_TOKEN");
+  if (!token) return;
+
+  const body = {
+    orderId: input.orderId,
+    platform: env("UTMIFY_PLATFORM") || "FlevoPay",
+    paymentMethod: "pix",
+    status: input.status,
+    createdAt: utmifyDate(),
+    approvedDate: input.status === "paid" ? utmifyDate() : null,
+    refundedAt: null,
+    customer: { ...input.customer, country: "BR" },
+    products: [{
+      id: env("UTMIFY_PRODUCT_ID") || env("PIX_PRODUCT_HASH") || "emprestimo",
+      name: env("UTMIFY_PRODUCT_NAME") || env("PIX_PRODUCT_DESCRIPTION") || "Taxa de adesão",
+      planId: null,
+      planName: null,
+      quantity: 1,
+      priceInCents: input.amount,
+    }],
+    trackingParameters: { src: input.tracking?.src ?? null, sck: input.tracking?.sck ?? null, utm_source: input.tracking?.utm_source ?? null, utm_medium: input.tracking?.utm_medium ?? null, utm_campaign: input.tracking?.utm_campaign ?? null, utm_content: input.tracking?.utm_content ?? null, utm_term: input.tracking?.utm_term ?? null },
+    commission: { totalPriceInCents: input.amount, gatewayFeeInCents: 0, userCommissionInCents: input.amount },
+    isTest: false,
+  };
+
+  try {
+    const response = await fetch(UTMIFY_API, {
+      method: "POST",
+      headers: { "x-api-token": token, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) console.error(`Utmify notification failed [${response.status}]: ${await response.text()}`);
+  } catch (error) {
+    console.error("Utmify notification error", error);
+  }
+}
+
+type TrackingInput = Partial<Record<"src" | "sck" | "utm_source" | "utm_medium" | "utm_campaign" | "utm_content" | "utm_term", string>>;
 
 type CustomerInput = {
   name: string;
@@ -13,7 +73,7 @@ function onlyDigits(value: string) {
   return value.replace(/\D/g, "");
 }
 
-function validateCustomer(input: CustomerInput): CustomerInput {
+function validateCustomer(input: CustomerInput & { tracking?: TrackingInput }): CustomerInput & { tracking?: TrackingInput } {
   const name = String(input?.name ?? "").trim();
   const email = String(input?.email ?? "").trim();
   const document = onlyDigits(String(input?.document ?? ""));
@@ -26,7 +86,8 @@ function validateCustomer(input: CustomerInput): CustomerInput {
     throw new Error("Informe um CPF ou CNPJ válido.");
   if (phone.length < 10 || phone.length > 13) throw new Error("Informe um telefone válido com DDD.");
 
-  return { name, email, document, phone };
+  const tracking = Object.fromEntries(Object.entries(input?.tracking ?? {}).filter(([, value]) => typeof value === "string" && value.length <= 200));
+  return { name, email, document, phone, ...(Object.keys(tracking).length ? { tracking } : {}) };
 }
 
 export type PixCharge = {
@@ -41,24 +102,26 @@ export type PixCharge = {
 export const createPixCharge = createServerFn({ method: "POST" })
   .inputValidator(validateCustomer)
   .handler(async ({ data }): Promise<PixCharge> => {
+    const { tracking, ...customer } = data;
     const apiKey = process.env.FLEVOPAY_SECRET_KEY;
     if (!apiKey) throw new Error("Gateway de pagamento não configurado.");
 
-    const amount = Number(process.env.PIX_AMOUNT_CENTS ?? 3021);
-    const description = process.env.PIX_PRODUCT_DESCRIPTION || "Taxa de adesão";
-    const productHash = process.env.PIX_PRODUCT_HASH || "";
-    const webhookUrl = process.env.PIX_WEBHOOK_URL || "";
+    const amount = Number(env("PIX_AMOUNT_CENTS") || 3021);
+    const description = env("PIX_PRODUCT_DESCRIPTION") || "Taxa de adesão";
+    const productHash = env("PIX_PRODUCT_HASH");
+    const callbackUrl = getWebhookUrl();
     const reference = `ECON-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     const body: Record<string, unknown> = {
       amount,
       description,
       reference,
-      customer: data,
+      customer,
     };
     if (productHash) body.productHash = productHash;
+    if (tracking && Object.keys(tracking).length) body.tracking = tracking;
     else body.source = "api_externa";
-    if (webhookUrl) body.postback_url = webhookUrl;
+    if (callbackUrl) body.postback_url = callbackUrl;
 
     const response = await fetch(`${API_BASE}/transaction`, {
       method: "POST",
@@ -74,21 +137,29 @@ export const createPixCharge = createServerFn({ method: "POST" })
 
     const payload = JSON.parse(text) as {
       transaction_id?: number | string;
+      transactionId?: number | string;
+      id?: number | string;
       qr_code?: string;
       qr_code_base64?: string;
+      pix?: { code?: string; qr_code?: string; qrCode?: string };
+      data?: { transaction_id?: number | string; id?: number | string; qr_code?: string; pix?: { code?: string } };
       amount?: number;
       expires_at?: string;
     };
 
-    if (!payload.qr_code) {
+    const transactionId = payload.transaction_id ?? payload.transactionId ?? payload.id ?? payload.data?.transaction_id ?? payload.data?.id;
+    const qrCode = payload.qr_code ?? payload.pix?.code ?? payload.pix?.qr_code ?? payload.pix?.qrCode ?? payload.data?.qr_code;
+    if (!transactionId || !qrCode) {
       console.error(`FlevoPay transaction without qr_code: ${text}`);
       throw new Error("Não foi possível gerar o PIX agora. Tente novamente.");
     }
 
+    await notifyUtmify({ orderId: String(transactionId), status: "waiting_payment", customer, amount: payload.amount ?? amount, tracking });
+
     return {
-      transactionId: String(payload.transaction_id ?? reference),
+      transactionId: String(transactionId),
       reference,
-      qrCode: payload.qr_code,
+      qrCode,
       qrCodeBase64: payload.qr_code_base64 ?? null,
       amount: payload.amount ?? amount,
       expiresAt: payload.expires_at ?? null,
