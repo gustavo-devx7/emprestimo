@@ -36,6 +36,7 @@ async function notifyUtmify(input: {
   status: "waiting_payment" | "paid";
   customer: CustomerInput;
   amount: number;
+  tracking?: TrackingInput;
 }) {
   const token = env("UTMIFY_API_TOKEN");
   if (!token) return;
