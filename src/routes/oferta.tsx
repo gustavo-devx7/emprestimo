@@ -37,10 +37,22 @@ const vantagens = [
 ];
 
 const faq = [
-  { q: "Qual o valor máximo que posso pedir?", a: "faq1" },
-  { q: "Quantas parcelas posso fazer?", a: "faq2" },
-  { q: "Quando recebo o dinheiro após aprovação?", a: "faq3" },
-  { q: "Qualquer perfil pode solicitar?", a: "faq4" },
+  {
+    q: "Qual o valor máximo que posso pedir?",
+    a: "Na modalidade de crédito pessoal da SuperSim, você pode solicitar até R$ 2.500,00, segundo a plataforma.",
+  },
+  {
+    q: "Quantas parcelas posso fazer?",
+    a: "Você pode parcelar o valor solicitado em até 12 vezes, de acordo com dados da SuperSim.",
+  },
+  {
+    q: "Quando recebo o dinheiro após aprovação?",
+    a: "O dinheiro pode ser liberado em minutos depois de aprovado, segundo a SuperSim.",
+  },
+  {
+    q: "Qualquer perfil pode solicitar?",
+    a: "Sim, a SuperSim permite que pessoas com qualquer perfil financeiro faça a solicitação, de acordo com o site oficial.",
+  },
 ];
 
 function Oferta() {
@@ -108,10 +120,11 @@ function Oferta() {
 
         <div className="mt-8 flex flex-col gap-5 text-base leading-relaxed text-foreground">
           <p>
-            Este é o <strong>empréstimo perfeito para quem precisa de dinheiro rápido após
-            aprovação</strong> para <strong>resolver um imprevisto financeiro</strong> ou até mesmo
-            um problema que já está te incomodando há algum tempo. Entenda como funciona o
-            empréstimo com uma das <strong>melhores taxas de aprovação do mercado</strong>!
+            Este é o{" "}
+            <strong>empréstimo perfeito para quem precisa de dinheiro rápido após aprovação</strong>{" "}
+            para <strong>resolver um imprevisto financeiro</strong> ou até mesmo um problema que já
+            está te incomodando há algum tempo. Entenda como funciona o empréstimo com uma das{" "}
+            <strong>melhores taxas de aprovação do mercado</strong>!
           </p>
         </div>
 
