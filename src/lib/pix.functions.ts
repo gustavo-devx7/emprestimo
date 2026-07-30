@@ -7,6 +7,20 @@ function env(name: string) {
   return String(process.env[name] ?? "").trim();
 }
 
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit & { timeoutMs?: number } = {},
+) {
+  const { timeoutMs = 15000, ...rest } = init;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...rest, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function getWebhookUrl() {
   const url = env("PIX_WEBHOOK_URL");
   // Never send status callbacks to FlevoPay's transaction creation endpoint.
@@ -49,10 +63,11 @@ async function notifyUtmify(input: {
   };
 
   try {
-    const response = await fetch(UTMIFY_API, {
+    const response = await fetchWithTimeout(UTMIFY_API, {
       method: "POST",
       headers: { "x-api-token": token, "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      timeoutMs: 15000,
     });
     if (!response.ok) console.error(`Utmify notification failed [${response.status}]: ${await response.text()}`);
   } catch (error) {
@@ -123,11 +138,18 @@ export const createPixCharge = createServerFn({ method: "POST" })
     else body.source = "api_externa";
     if (callbackUrl) body.postback_url = callbackUrl;
 
-    const response = await fetch(`${API_BASE}/transaction`, {
-      method: "POST",
-      headers: { "X-API-Key": apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    let response: Response;
+    try {
+      response = await fetchWithTimeout(`${API_BASE}/transaction`, {
+        method: "POST",
+        headers: { "X-API-Key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        timeoutMs: 15000,
+      });
+    } catch (error) {
+      console.error("FlevoPay transaction request failed/timed out", error);
+      throw new Error("Não foi possível gerar o PIX agora. Tente novamente.");
+    }
 
     const text = await response.text();
     if (!response.ok) {
@@ -154,7 +176,11 @@ export const createPixCharge = createServerFn({ method: "POST" })
       throw new Error("Não foi possível gerar o PIX agora. Tente novamente.");
     }
 
-    await notifyUtmify({ orderId: String(transactionId), status: "waiting_payment", customer, amount: payload.amount ?? amount, tracking });
+    // Fire-and-forget: a notificação de rastreamento (Utmify) NÃO deve bloquear
+    // a resposta do QR Code ao usuário. Ela roda em segundo plano.
+    void notifyUtmify({ orderId: String(transactionId), status: "waiting_payment", customer, amount: payload.amount ?? amount, tracking }).catch((error) => {
+      console.error("Utmify notification (background) failed", error);
+    });
 
     return {
       transactionId: String(transactionId),
@@ -181,10 +207,16 @@ export const getPixStatus = createServerFn({ method: "POST" })
         : `https://${rawUpsell}`
       : null;
 
-    const response = await fetch(
-      `${API_BASE}/query?action=get_transaction&id=${encodeURIComponent(data.transactionId)}`,
-      { headers: { "X-API-Key": apiKey } },
-    );
+    let response: Response;
+    try {
+      response = await fetchWithTimeout(
+        `${API_BASE}/query?action=get_transaction&id=${encodeURIComponent(data.transactionId)}`,
+        { headers: { "X-API-Key": apiKey }, timeoutMs: 10000 },
+      );
+    } catch (error) {
+      console.error("FlevoPay query request failed/timed out", error);
+      return { status: "pending", upsellUrl };
+    }
 
     if (!response.ok) {
       console.error(`FlevoPay query failed [${response.status}]: ${await response.text()}`);
