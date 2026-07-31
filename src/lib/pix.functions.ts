@@ -1,5 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 
+import { isUtmifyTest, type Tracking } from "./tracking";
+
 const API_BASE = "https://app.flevopay.com.br/api/v1";
 const UTMIFY_API = "https://api.utmify.com.br/api-credentials/orders";
 
@@ -60,7 +62,7 @@ async function notifyUtmify(input: {
     }],
     trackingParameters: { src: input.tracking?.src ?? null, sck: input.tracking?.sck ?? null, utm_source: input.tracking?.utm_source ?? null, utm_medium: input.tracking?.utm_medium ?? null, utm_campaign: input.tracking?.utm_campaign ?? null, utm_content: input.tracking?.utm_content ?? null, utm_term: input.tracking?.utm_term ?? null },
     commission: { totalPriceInCents: input.amount, gatewayFeeInCents: 0, userCommissionInCents: input.amount },
-    isTest: false,
+    isTest: isUtmifyTest(input.tracking ?? {}),
   };
 
   try {

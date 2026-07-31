@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { LegalFooter } from "@/components/LegalFooter";
+import { captureTracking, trackingSearch } from "@/lib/tracking";
 
 export const Route = createFileRoute("/oferta")({
   head: () => ({
@@ -58,7 +59,10 @@ const faq = [
 function Oferta() {
   const navigate = useNavigate();
   const [open, setOpen] = useState<number | null>(null);
-  const goToPayment = () => navigate({ to: "/pagamento" });
+  const goToPayment = () => {
+    const search = trackingSearch(captureTracking(window.location.search));
+    navigate({ to: "/pagamento", search: search ? `?${search}` : undefined });
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-background">

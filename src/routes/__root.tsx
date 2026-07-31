@@ -4,6 +4,7 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useLocation,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -11,6 +12,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { captureTracking, trackingSearch } from "../lib/tracking";
 
 function NotFoundComponent() {
   return (
@@ -140,6 +142,15 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const location = useLocation();
+
+  useEffect(() => {
+    const tracking = captureTracking(location.search);
+    if (!location.search && Object.keys(tracking).length) {
+      const search = trackingSearch(tracking);
+      window.history.replaceState(null, "", `${location.pathname}?${search}${location.hash}`);
+    }
+  }, [location.hash, location.pathname, location.search]);
 
   return (
     <QueryClientProvider client={queryClient}>
