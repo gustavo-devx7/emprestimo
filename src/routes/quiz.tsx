@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { LegalFooter } from "@/components/LegalFooter";
 import { Stepper } from "@/components/Stepper";
@@ -62,12 +62,12 @@ function Quiz() {
   const question = questions[step - 1];
 
   const [ctaReady, setCtaReady] = useState(false);
+  const handleVideoTimeUpdate = useCallback((currentTime: number) => {
+    setCtaReady(currentTime >= 46);
+  }, []);
 
   useEffect(() => {
-    if (!isLast) return;
-    setCtaReady(false);
-    const timer = setTimeout(() => setCtaReady(true), 2000);
-    return () => clearTimeout(timer);
+    if (!isLast) setCtaReady(false);
   }, [isLast]);
 
   function answer(value: string) {
@@ -86,9 +86,16 @@ function Quiz() {
       <main className="flex-1 px-5 py-12">
         {isLast ? (
           <div className="mx-auto flex max-w-lg flex-col items-center">
-            <p className="mt-10 text-center text-2xl font-bold text-brand-navy">
-              aqui vai a vsl
-            </p>
+            <div className="mb-4 text-center">
+              <h1 className="text-xl font-bold text-brand-navy">
+                Seu vídeo explicativo está sendo carregado
+              </h1>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Aguarde um momento e assista ao vídeo para tirar suas dúvidas.
+              </p>
+            </div>
+
+            <WistiaVideo onTimeUpdate={handleVideoTimeUpdate} />
 
             <button
               type="button"
@@ -127,6 +134,69 @@ function Quiz() {
       </main>
 
       <LegalFooter />
+    </div>
+  );
+}
+function WistiaVideo({ onTimeUpdate }: { onTimeUpdate: (currentTime: number) => void }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const playerScript = document.querySelector<HTMLScriptElement>(
+      'script[src="https://fast.wistia.com/player.js"]',
+    );
+    if (!playerScript) {
+      const script = document.createElement("script");
+      script.src = "https://fast.wistia.com/player.js";
+      script.async = true;
+      document.head.appendChild(script);
+    }
+
+    const embedScript = document.querySelector<HTMLScriptElement>(
+      'script[src="https://fast.wistia.com/embed/0nmger61ql.js"]',
+    );
+    if (!embedScript) {
+      const script = document.createElement("script");
+      script.src = "https://fast.wistia.com/embed/0nmger61ql.js";
+      script.async = true;
+      script.type = "module";
+      document.head.appendChild(script);
+    }
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    const player = document.createElement("wistia-player");
+    player.setAttribute("media-id", "0nmger61ql");
+    player.setAttribute("aspect", "1.7777777777777777");
+
+    const handleTimeChange = () => {
+      const currentTime = Number((player as HTMLElement & { currentTime?: number }).currentTime ?? 0);
+      onTimeUpdate(currentTime);
+    };
+
+    player.addEventListener("timechange", handleTimeChange);
+    container.appendChild(player);
+
+    return () => {
+      player.removeEventListener("timechange", handleTimeChange);
+      player.remove();
+    };
+  }, [onTimeUpdate]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="mt-10 w-full overflow-hidden rounded-xl bg-black"
+      aria-label="Vídeo da apresentação"
+    >
+      <style>{`
+        wistia-player[media-id='0nmger61ql']:not(:defined) {
+          background: center / contain no-repeat url('https://fast.wistia.com/embed/medias/0nmger61ql/swatch');
+          display: block;
+          filter: blur(5px);
+          padding-top: 56.25%;
+        }
+      `}</style>
     </div>
   );
 }
